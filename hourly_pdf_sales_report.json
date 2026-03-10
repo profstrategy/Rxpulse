@@ -1,0 +1,264 @@
+{
+  "name": "Hourly_pdf_sales_report",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "hours"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.3,
+      "position": [
+        0,
+        0
+      ],
+      "id": "27ef10e5-4efc-4eac-b495-e224240bbbc7",
+      "name": "Run Every Hour"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "-- Get all processed sales from the last hour that haven't been notified\nSELECT \n  eo.id as event_outbox_id,\n  eo.reference_id,\n  eo.created_at as event_created_at,\n  eo.payload,\n  ps.id as sale_id,\n  ps.sale_number,\n  ps.sale_status,\n  ps.payment_method,\n  ps.total_amount,\n  ps.\"createdAt\" as sale_created_at\nFROM event_outbox eo\nINNER JOIN pos_sale ps ON ps.id = eo.reference_id\nWHERE eo.event_type = 'POS_SALE'\n  AND eo.event_status = 'PROCESSED'\n  AND eo.created_at >= NOW() - INTERVAL '1 hour'\n  AND (eo.notified_at IS NULL OR eo.notified_at < NOW() - INTERVAL '1 hour')\nORDER BY eo.created_at ASC;",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        224,
+        0
+      ],
+      "id": "6442cf5a-d789-40f3-8741-617de030d9d9",
+      "name": "Fetch Processed Sales (Last Hour)",
+      "credentials": {
+        "postgres": {
+          "id": "ZRT4AN7r4ibFzcW0",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "has-sales-check",
+              "leftValue": "={{ $input.all().length }}",
+              "rightValue": 0,
+              "operator": {
+                "type": "number",
+                "operation": "gt"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        448,
+        0
+      ],
+      "id": "ca372b63-7624-4794-a30e-069f84121335",
+      "name": "Any Sales to Report?"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "-- Get detailed sale items with package descriptions\nSELECT \n  psi.id as sale_item_id,\n  psi.sale_id,\n  psi.package_id,\n  psi.inventory_id,\n  psi.brand_name,\n  psi.generic_name,\n  psi.quantity,\n  psi.unit_price,\n  psi.total_price,\n  np.description as package_description,\n  np.package_ndc,\n  i.quantity_on_hand,\n  i.lot_number,\n  i.expiry_date,\n  ps.sale_number,\n  ps.sale_status,\n  ps.payment_method,\n  ps.total_amount as sale_total_amount,\n  ps.\"createdAt\" as sale_time\nFROM pos_sale_item psi\nINNER JOIN pos_sale ps ON ps.id = psi.sale_id\nINNER JOIN ndc_package np ON np.id = psi.package_id\nLEFT JOIN inventory i ON i.id = psi.inventory_id\nWHERE psi.sale_id = ANY(\n  SELECT ps2.id \n  FROM event_outbox eo2\n  INNER JOIN pos_sale ps2 ON ps2.id = eo2.reference_id\n  WHERE eo2.event_type = 'POS_SALE'\n    AND eo2.event_status = 'PROCESSED'\n    AND eo2.created_at >= NOW() - INTERVAL '1 hour'\n    AND (eo2.notified_at IS NULL OR eo2.notified_at < NOW() - INTERVAL '1 hour')\n)\nORDER BY ps.\"createdAt\" ASC, psi.id ASC;",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        672,
+        0
+      ],
+      "id": "64640da0-b1e2-4a24-9100-dabf609a2cfc",
+      "name": "Fetch Sale Items with Package Details",
+      "credentials": {
+        "postgres": {
+          "id": "ZRT4AN7r4ibFzcW0",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Group sales by sale_number\nconst items = $input.all();\nconst salesBySaleNumber = new Map();\n\nitems.forEach(item => {\n  const saleNum = item.json.sale_number;\n  if (!salesBySaleNumber.has(saleNum)) {\n    salesBySaleNumber.set(saleNum, {\n      sale_number: saleNum,\n      sale_status: item.json.sale_status,\n      payment_method: item.json.payment_method,\n      sale_total: parseFloat(item.json.sale_total_amount),\n      sale_time: item.json.sale_time,\n      items: []\n    });\n  }\n  \n  salesBySaleNumber.get(saleNum).items.push({\n    drug_name: item.json.brand_name || item.json.generic_name,\n    description: item.json.package_description,\n    quantity: item.json.quantity,\n    unit_price: parseFloat(item.json.unit_price),\n    total_price: parseFloat(item.json.total_price),\n    stock_available: item.json.quantity_on_hand || 0\n  });\n});\n\n// Build Slack blocks\nconst blocks = [];\nlet grandTotal = 0;\n\n// Time range header\nconst firstSale = items[0].json.sale_time;\nconst lastSale = items[items.length - 1].json.sale_time;\nconst startTime = new Date(firstSale).toLocaleTimeString('en-US', { \n  hour: '2-digit', \n  minute: '2-digit' \n});\nconst endTime = new Date(lastSale).toLocaleTimeString('en-US', { \n  hour: '2-digit', \n  minute: '2-digit' \n});\n\nblocks.push({\n  type: \"header\",\n  text: {\n    type: \"plain_text\",\n    text: `💊 Sales: ${startTime} - ${endTime}`\n  }\n});\n\nblocks.push({ type: \"divider\" });\n\n// For each sale\nsalesBySaleNumber.forEach(sale => {\n  grandTotal += sale.sale_total;\n  \n  // Sale header\n  blocks.push({\n    type: \"section\",\n    text: {\n      type: \"mrkdwn\",\n      text: `*Sale: ${sale.sale_number}*\\n` +\n            `Status: ${sale.sale_status} | ` +\n            `Payment: ${sale.payment_method} | ` +\n            `Time: ${new Date(sale.sale_time).toLocaleTimeString()}`\n    }\n  });\n  \n  // Items\n  sale.items.forEach(item => {\n    blocks.push({\n      type: \"section\",\n      text: {\n        type: \"mrkdwn\",\n        text: `• *${item.drug_name}*\\n` +\n              `  ${item.description}\\n` +\n              `  ${item.quantity} × $${item.unit_price.toFixed(2)} = ` +\n              `*$${item.total_price.toFixed(2)}*\\n` +\n              `  📦 Stock: ${item.stock_available} available`\n      }\n    });\n  });\n  \n  // Sale total\n  blocks.push({\n    type: \"section\",\n    text: {\n      type: \"mrkdwn\",\n      text: `*Total Amount for ${sale.sale_number}:* $${sale.sale_total.toFixed(2)}`\n    }\n  });\n  \n  blocks.push({ type: \"divider\" });\n});\n\n// Footer summary\nblocks.push({\n  type: \"context\",\n  elements: [{\n    type: \"mrkdwn\",\n    text: `📈 *${salesBySaleNumber.size}* sale(s) | ` +\n          `💰 *Grand Total: $${grandTotal.toFixed(2)}*`\n  }]\n});\n\n// Return blocks as array (NOT stringified!)\nreturn [{\n  json: {\n    blocks: blocks,\n    sales_count: salesBySaleNumber.size,\n    grand_total: grandTotal,\n    time_range: `${startTime} - ${endTime}`\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        896,
+        0
+      ],
+      "id": "d6c9b934-6f03-4c1a-a5ce-cc1760be6f82",
+      "name": "Format Slack Message"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "-- Mark sales as notified\nUPDATE event_outbox\nSET notified_at = NOW()\nWHERE event_type = 'POS_SALE'\n  AND event_status = 'PROCESSED'\n  AND created_at >= NOW() - INTERVAL '1 hour'\n  AND (notified_at IS NULL OR notified_at < NOW() - INTERVAL '1 hour');",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        1568,
+        0
+      ],
+      "id": "108342d9-9c63-41cc-9a0c-cc5066b373ba",
+      "name": "Mark Sales as Notified",
+      "credentials": {
+        "postgres": {
+          "id": "ZRT4AN7r4ibFzcW0",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Prepare payload for Slack API\nconst data = $input.first().json;\n\nreturn [{\n  json: {\n    channel: \"sales-team\",\n    text: \"New sales recorded\",\n    blocks: data.blocks\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1120,
+        0
+      ],
+      "id": "266dbc03-2c29-4d05-94ba-6457b6caa829",
+      "name": "Prepare Slack Payload"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://slack.com/api/chat.postMessage",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBearerAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ $json }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [
+        1344,
+        0
+      ],
+      "id": "f48d94fb-9f7c-46d1-94c8-fdfdcbbbc8d5",
+      "name": "Send All Formulations Ordered to Slack",
+      "credentials": {
+        "httpBearerAuth": {
+          "id": "Mh8e1wjG6qeHSbun",
+          "name": "Bearer Auth account"
+        }
+      }
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Run Every Hour": {
+      "main": [
+        [
+          {
+            "node": "Fetch Processed Sales (Last Hour)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Processed Sales (Last Hour)": {
+      "main": [
+        [
+          {
+            "node": "Any Sales to Report?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Any Sales to Report?": {
+      "main": [
+        [
+          {
+            "node": "Fetch Sale Items with Package Details",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Sale Items with Package Details": {
+      "main": [
+        [
+          {
+            "node": "Format Slack Message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format Slack Message": {
+      "main": [
+        [
+          {
+            "node": "Prepare Slack Payload",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Slack Payload": {
+      "main": [
+        [
+          {
+            "node": "Send All Formulations Ordered to Slack",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send All Formulations Ordered to Slack": {
+      "main": [
+        [
+          {
+            "node": "Mark Sales as Notified",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false
+  },
+  "versionId": "81f91680-3d1c-41e2-bc7a-d3112a79a4fc",
+  "meta": {
+    "instanceId": "22f5c003fd2cd3a1ac314539a7e8567fe60195300a5577f02c6e551c0f97cc2a"
+  },
+  "id": "ER64JM4Une4TWtoy",
+  "tags": []
+}

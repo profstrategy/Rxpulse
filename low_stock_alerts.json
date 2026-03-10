@@ -1,0 +1,321 @@
+{
+  "name": "low_stock_alerts.json",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "seconds",
+              "secondsInterval": 10
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.3,
+      "position": [
+        0,
+        0
+      ],
+      "id": "7696404c-3e7a-48a7-b792-42288730c9bd",
+      "name": "Check Low Stock Every 10s"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT \n  -- Inventory fields\n  i.id as inventory_id,\n  i.package_id,\n  i.location_id,\n  i.lot_number,\n  i.expiry_date,\n  i.quantity_on_hand,\n  i.quantity_reserved,\n  i.quantity_available,\n  i.reorder_threshold,\n  i.min_stock_level,\n  i.last_alert_sent,\n  i.alert_cooldown_hours,\n  i.last_updated,\n  \n  -- Package details\n  np.package_ndc,\n  np.description as package_description,\n  \n  -- Product details\n  prod.brand_name,\n  prod.generic_name,\n  prod.dosage_form,\n  prod.route,\n  \n  -- Calculate severity (CRITICAL ADDITION!)\n  CASE \n    WHEN i.quantity_on_hand <= i.min_stock_level THEN 'CRITICAL'\n    WHEN i.quantity_on_hand <= (i.reorder_threshold * 0.3) THEN 'HIGH'\n    WHEN i.quantity_on_hand <= (i.reorder_threshold * 0.5) THEN 'MEDIUM'\n    ELSE 'LOW'\n  END as severity,\n  \n  -- Calculate percentage remaining\n  ROUND((i.quantity_on_hand::DECIMAL / NULLIF(i.reorder_threshold, 0)) * 100, 1) as percent_remaining,\n  \n  -- Hours since last alert\n  EXTRACT(EPOCH FROM (NOW() - i.last_alert_sent)) / 3600 as hours_since_alert\n\nFROM inventory i\nINNER JOIN ndc_package np ON np.id = i.package_id\nINNER JOIN ndc_product prod ON prod.id = np.product_id\n\nWHERE \n  -- Below reorder threshold\n  i.quantity_on_hand <= i.reorder_threshold\n  \n  -- Cooldown check: haven't alerted recently\n  AND (\n    i.last_alert_sent IS NULL \n    OR i.last_alert_sent < NOW() - (i.alert_cooldown_hours || ' hours')::INTERVAL\n  )\n  \n  -- Not expired yet\n  AND i.expiry_date > NOW()\n  \nORDER BY \n  -- Most urgent first\n  (i.quantity_on_hand::FLOAT / NULLIF(i.reorder_threshold, 0)) ASC,\n  i.quantity_on_hand ASC\n  \nLIMIT 100;",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        224,
+        0
+      ],
+      "id": "017721b5-1919-4851-8fa8-c12cf5880a2e",
+      "name": "Find Low Stock Items",
+      "credentials": {
+        "postgres": {
+          "id": "ZRT4AN7r4ibFzcW0",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 1
+          },
+          "conditions": [
+            {
+              "id": "f18d785f-e7e7-4e58-b1f6-2e92dd8277e4",
+              "leftValue": "",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "equals",
+                "name": "filter.operator.equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": "={{ $input.all().length > 0 }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        448,
+        0
+      ],
+      "id": "801599da-4a8a-49a9-940a-94e4dc63015f",
+      "name": "Any Low Stock Items?"
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $input.all();\n\nif (!items || items.length === 0) {\n  return [];\n}\n\n// Group by severity\nconst critical = items.filter(i => i.json.severity === 'CRITICAL');\nconst high = items.filter(i => i.json.severity === 'HIGH');\nconst medium = items.filter(i => i.json.severity === 'MEDIUM');\nconst low = items.filter(i => i.json.severity === 'LOW');\n\n// Combine medium and low into \"warning\" for display\nconst warning = [...medium, ...low];\n\n// Build Slack blocks\nconst blocks = [];\n\n// Header\nblocks.push({\n  type: \"header\",\n  text: {\n    type: \"plain_text\",\n    text: `🚨 Low Stock Alert - ${items.length} Item(s)`\n  }\n});\n\nblocks.push({ type: \"divider\" });\n\n// Critical items (🔴)\nif (critical.length > 0) {\n  blocks.push({\n    type: \"section\",\n    text: {\n      type: \"mrkdwn\",\n      text: `*🔴 CRITICAL - ${critical.length} items at minimum stock level:*`\n    }\n  });\n  \n  critical.forEach(item => {\n    const percentRemaining = item.json.percent_remaining || \n      ((item.json.quantity_on_hand / item.json.reorder_threshold) * 100).toFixed(1);\n    const expiryDate = new Date(item.json.expiry_date).toLocaleDateString();\n    \n    blocks.push({\n      type: \"section\",\n      text: {\n        type: \"mrkdwn\",\n        text: `*${item.json.brand_name || item.json.generic_name}*\\n` +\n              `📍 ${item.json.location_name || 'Unknown Location'}\\n` +\n              `📦 ${item.json.package_description || 'N/A'}\\n` +\n              `💊 Stock: *${item.json.quantity_on_hand}* (${percentRemaining}% of threshold)\\n` +\n              `⚠️ Reorder at: ${item.json.reorder_threshold} | Min: ${item.json.min_stock_level}\\n` +\n              `🏷️ NDC: ${item.json.package_ndc}\\n` +\n              `🧪 Lot: ${item.json.lot_number} | Expires: ${expiryDate}`\n      }\n    });\n  });\n  \n  blocks.push({ type: \"divider\" });\n}\n\n// High severity items (🟠)\nif (high.length > 0) {\n  blocks.push({\n    type: \"section\",\n    text: {\n      type: \"mrkdwn\",\n      text: `*🟠 HIGH - ${high.length} items below 30% threshold:*`\n    }\n  });\n  \n  high.forEach(item => {\n    const percentRemaining = item.json.percent_remaining || \n      ((item.json.quantity_on_hand / item.json.reorder_threshold) * 100).toFixed(1);\n    const expiryDate = new Date(item.json.expiry_date).toLocaleDateString();\n    \n    blocks.push({\n      type: \"section\",\n      text: {\n        type: \"mrkdwn\",\n        text: `*${item.json.brand_name || item.json.generic_name}*\\n` +\n              `📦 ${item.json.package_description || 'N/A'}\\n` +\n              `Stock: ${item.json.quantity_on_hand} (${percentRemaining}%) | Reorder: ${item.json.reorder_threshold} | NDC: ${item.json.package_ndc}\\n` +\n              `🧪 Lot: ${item.json.lot_number} | Expires: ${expiryDate}`\n      }\n    });\n  });\n  \n  blocks.push({ type: \"divider\" });\n}\n\n// Warning items (🟡) - This combines MEDIUM and LOW severity\nif (warning.length > 0) {\n  blocks.push({\n    type: \"section\",\n    text: {\n      type: \"mrkdwn\",\n      text: `*🟡 WARNING - ${warning.length} items below threshold:*`\n    }\n  });\n  \n  warning.forEach(item => {\n    const drugName = item.json.brand_name || item.json.generic_name;\n    const percentRemaining = item.json.percent_remaining || \n      ((item.json.quantity_on_hand / item.json.reorder_threshold) * 100).toFixed(0);\n    \n    blocks.push({\n      type: \"section\",\n      text: {\n        type: \"mrkdwn\",\n        text: `*${drugName}*\\nStock: ${item.json.quantity_on_hand} (${percentRemaining}%) | Reorder: ${item.json.reorder_threshold} | NDC: ${item.json.package_ndc}`\n      }\n    });\n  });\n  \n  blocks.push({ type: \"divider\" });\n}\n\n// Summary footer\nblocks.push({\n  type: \"context\",\n  elements: [{\n    type: \"mrkdwn\",\n    text: `📊 Total Low Stock Items: *${items.length}* | 🔴 Critical: *${critical.length}* | 🟡 Warning: *${warning.length}*`\n  }]\n});\n\n// Build alert_data array with all details needed for database inserts\nconst alert_data = items.map(item => ({\n  inventory_id: item.json.inventory_id,\n  package_id: item.json.package_id,\n  location_id: item.json.location_id,\n  quantity_at_alert: item.json.quantity_on_hand,\n  reorder_threshold: item.json.reorder_threshold,\n  severity: item.json.severity\n}));\n\n// Return complete data structure\nreturn [{\n  json: {\n    blocks: blocks,\n    alert_data: alert_data,\n    summary: {\n      total: items.length,\n      critical: critical.length,\n      high: high.length,\n      medium: medium.length,\n      low: low.length,\n      warning: warning.length  // Combined count\n    },\n    alert_timestamp: new Date().toISOString()\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        672,
+        0
+      ],
+      "id": "111ae53f-0875-4a03-a5bc-39bc7f8b5121",
+      "name": "Format Low Stock Alert"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://slack.com/api/chat.postMessage",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBearerAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"channel\": \"inventory-alerts\",\n  \"text\": \"Low stock alert\",\n  \"blocks\": {{ JSON.stringify($json.blocks) }}\n}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        896,
+        0
+      ],
+      "id": "c4499971-ec2a-4478-99bb-b5b3bb2a5698",
+      "name": "Send to Slack",
+      "credentials": {
+        "httpBearerAuth": {
+          "id": "Mh8e1wjG6qeHSbun",
+          "name": "Bearer Auth account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO inventory_alert (\n  inventory_id, type, severity, message, quantity_at_alert, threshold_at_alert, \"createdAt\"\n)\nSELECT \n  (item->>'inventory_id')::INTEGER,\n  CASE WHEN (item->>'severity')::TEXT = 'CRITICAL' THEN 'CRITICAL_STOCK'::\"InventoryAlertType\" ELSE 'LOW_STOCK'::\"InventoryAlertType\" END,\n  (item->>'severity')::TEXT::\"AlertSeverity\",\n  'Stock level: ' || (item->>'quantity_at_alert') || ' (threshold: ' || (item->>'reorder_threshold') || ')',\n  (item->>'quantity_at_alert')::INTEGER,\n  (item->>'reorder_threshold')::INTEGER,\n  NOW()\nFROM jsonb_array_elements('{{ JSON.stringify($(\"Format Low Stock Alert\").item.json.alert_data) }}'::jsonb) AS item\nWHERE NOT EXISTS (\n  SELECT 1 FROM inventory_alert ia WHERE ia.inventory_id = (item->>'inventory_id')::INTEGER\n  AND ia.type IN ('LOW_STOCK', 'CRITICAL_STOCK') AND ia.\"createdAt\" > NOW() - INTERVAL '24 hours'\n);\n\nSELECT true as success, 'Alerts created' as message, '{{ JSON.stringify($(\"Format Low Stock Alert\").item.json.alert_data) }}'::jsonb as alert_data;",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        1120,
+        0
+      ],
+      "id": "248f717f-0cc9-42d1-a1b3-48bec2b5928c",
+      "name": "Create Alert Records in Database",
+      "credentials": {
+        "postgres": {
+          "id": "ZRT4AN7r4ibFzcW0",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO low_stock_alert_log (\n  inventory_id, package_id, location_id, quantity_at_alert, reorder_threshold, severity, notification_sent, notification_channel, \"createdAt\"\n)\nSELECT \n  (item->>'inventory_id')::INTEGER,\n  (item->>'package_id')::INTEGER,\n  COALESCE((item->>'location_id')::INTEGER, (SELECT location_id FROM inventory WHERE id = (item->>'inventory_id')::INTEGER)),\n  (item->>'quantity_at_alert')::INTEGER,\n  (item->>'reorder_threshold')::INTEGER,\n  (item->>'severity')::TEXT::\"AlertSeverity\",\n  true, 'SLACK', NOW()\nFROM jsonb_array_elements('{{ $json.alert_data }}'::jsonb) AS item\nWHERE NOT EXISTS (\n  SELECT 1 FROM low_stock_alert_log lsal WHERE lsal.inventory_id = (item->>'inventory_id')::INTEGER\n  AND lsal.notification_sent = true AND lsal.\"createdAt\" > NOW() - INTERVAL '24 hours'\n);\n\nSELECT true as success, 'Detailed alerts logged' as message, '{{  $json.alert_data}}'::jsonb as alert_data;",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        1568,
+        0
+      ],
+      "id": "d3edde85-1e78-4da5-ad50-1627f1c4c32c",
+      "name": "Log Detailed Alerts in Database",
+      "credentials": {
+        "postgres": {
+          "id": "ZRT4AN7r4ibFzcW0",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE inventory\nSET last_alert_sent = NOW()\nWHERE id IN (\n  SELECT (item->>'inventory_id')::INTEGER\n  FROM jsonb_array_elements('{{ JSON.stringify($json.alert_data )}}'::jsonb) AS item\n);",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        1792,
+        0
+      ],
+      "id": "f86ecef2-977d-45b0-b014-1d84f7d1f0d2",
+      "name": "Update Alert Timestamps",
+      "credentials": {
+        "postgres": {
+          "id": "ZRT4AN7r4ibFzcW0",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "d5173ab5-c7d7-47b3-84cc-c1d8c0130234",
+              "name": "success",
+              "value": "={{ $json.success }}",
+              "type": "string"
+            },
+            {
+              "id": "0c16b209-565d-454f-bed6-8847f9eaf33d",
+              "name": "message",
+              "value": "={{ $json.message }}",
+              "type": "string"
+            },
+            {
+              "id": "e853cbd4-9831-47e0-9e28-a5eaf3f61131",
+              "name": "alert_data",
+              "value": "={{ $json.alert_data }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        1344,
+        0
+      ],
+      "id": "195f70e8-57fe-4ed6-a140-c8f2f083e548",
+      "name": "Pass Alert Data Forward"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Check Low Stock Every 10s": {
+      "main": [
+        [
+          {
+            "node": "Find Low Stock Items",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Find Low Stock Items": {
+      "main": [
+        [
+          {
+            "node": "Any Low Stock Items?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Any Low Stock Items?": {
+      "main": [
+        [
+          {
+            "node": "Format Low Stock Alert",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format Low Stock Alert": {
+      "main": [
+        [
+          {
+            "node": "Send to Slack",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send to Slack": {
+      "main": [
+        [
+          {
+            "node": "Create Alert Records in Database",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create Alert Records in Database": {
+      "main": [
+        [
+          {
+            "node": "Pass Alert Data Forward",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log Detailed Alerts in Database": {
+      "main": [
+        [
+          {
+            "node": "Update Alert Timestamps",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Pass Alert Data Forward": {
+      "main": [
+        [
+          {
+            "node": "Log Detailed Alerts in Database",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false
+  },
+  "versionId": "fd09f0c7-7bf4-4dbe-a2c4-bc800b60328a",
+  "meta": {
+    "instanceId": "22f5c003fd2cd3a1ac314539a7e8567fe60195300a5577f02c6e551c0f97cc2a"
+  },
+  "id": "tThMXkvXWxxWKBGu",
+  "tags": []
+}

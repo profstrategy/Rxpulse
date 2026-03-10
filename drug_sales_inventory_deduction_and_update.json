@@ -1,0 +1,415 @@
+{
+  "name": "drug_sales_inventory_deduction_and_update",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "minutes",
+              "minutesInterval": 1
+            },
+            {}
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.3,
+      "position": [
+        -896,
+        144
+      ],
+      "id": "a0214bcb-11cc-45c0-aae8-1daf6f917845",
+      "name": "POS API TRIGGER"
+    },
+    {
+      "parameters": {
+        "useCustomSchema": true,
+        "operation": "getAll",
+        "tableId": "event_outbox"
+      },
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        -672,
+        144
+      ],
+      "id": "699e23cd-5f8b-4066-b777-76ad637fd014",
+      "name": "Fetch POS data from event outbox table",
+      "retryOnFail": true,
+      "credentials": {
+        "supabaseApi": {
+          "id": "ABaqr6Jnj86cdmTQ",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.event_status }}",
+                    "rightValue": "PENDING",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "id": "e00f42df-9346-4341-bdc4-e206348cd3ec"
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "new pos sale data"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "id": "43a73087-650c-4b0c-a8d8-25e196f89412",
+                    "leftValue": "={{ $json.event_status }}",
+                    "rightValue": "PROCESSED",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "successful pos sale data"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.4,
+      "position": [
+        -448,
+        144
+      ],
+      "id": "d19b6145-1d46-4342-a5d6-172cff6cfafd",
+      "name": "Is POS sale created"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Input: items from previous node\nconst output = [];\n\n// Generate a random BigInt for idempotency\nfunction randomBigInt() {\n  // Generate random number for idempotency\n  return Math.floor(Math.random() * 1e12).toString();\n}\n\nfor (const event of items) {\n  const data = event.json;\n  const eventId = data.id;\n  \n  // Skip if already processed or payload missing\n  if (!data.payload || !Array.isArray(data.payload.items) || data.processed === true) {\n    continue;\n  }\n  \n  const saleNumber = data.payload.sale_number || null;\n  \n  // Loop through each item and create separate output\n  for (const item of data.payload.items) {\n    const packageId = item.package_id;\n    const inventoryId = item.inventory_id ?? null;\n    const quantity = item.quantity;\n    const brandName = item.brand_name ?? null;\n    const genericName = item.generic_name ?? null;\n    const itemLength = data.payload.items.length;\n    \n    output.push({\n      json: {\n        event_type: \"POS_SALE\",\n        event_outbox_id: randomBigInt(),\n        reference: saleNumber,\n        package_id: packageId,\n        inventory_id: inventoryId,\n        line_reference: `${eventId}of${packageId}of${itemLength}`,\n        quantity,\n        direction: \"OUT\",\n        type: \"SALE\",\n        brand_name: brandName,\n        generic_name: genericName,\n        event_id: eventId,\n        reference_id: data.reference_id,\n        created_at: new Date().toISOString(),\n      },\n    });\n  }\n}\n\nreturn output;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -224,
+        144
+      ],
+      "id": "b6565cb4-f0a1-4d55-be71-e920096955da",
+      "name": "Normalize data for inventory transaction"
+    },
+    {
+      "parameters": {
+        "tableId": "inventory_transaction",
+        "fieldsUi": {
+          "fieldValues": [
+            {
+              "fieldId": "inventory_id",
+              "fieldValue": "={{ $json.inventory_id }}"
+            },
+            {
+              "fieldId": "type",
+              "fieldValue": "={{ $json.type }}"
+            },
+            {
+              "fieldId": "quantity",
+              "fieldValue": "={{ $json.quantity }}"
+            },
+            {
+              "fieldId": "reference",
+              "fieldValue": "={{ $json.reference }}"
+            },
+            {
+              "fieldId": "line_reference",
+              "fieldValue": "={{ $json.line_reference }}"
+            },
+            {
+              "fieldId": "event_outbox_id",
+              "fieldValue": "={{ $json.event_outbox_id }}"
+            },
+            {
+              "fieldId": "direction",
+              "fieldValue": "={{ $json.direction }}"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        672,
+        80
+      ],
+      "id": "d6635cc3-c4bf-4cfc-bfab-bcdde607b104",
+      "name": "Insert normalized data into inventory transaction table",
+      "notesInFlow": false,
+      "retryOnFail": true,
+      "waitBetweenTries": 200,
+      "credentials": {
+        "supabaseApi": {
+          "id": "ABaqr6Jnj86cdmTQ",
+          "name": "Supabase account"
+        }
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "WITH inventory_update AS (\n  UPDATE inventory\n  SET\n    quantity_on_hand = quantity_on_hand - $1,\n    last_updated = NOW()\n  WHERE id = $2\n    AND quantity_on_hand - quantity_reserved - $1 >= 0\n  RETURNING id\n)\nUPDATE event_outbox\nSET event_status = 'PROCESSED'\nWHERE reference_id = $3\n  AND EXISTS (SELECT 1 FROM inventory_update);",
+        "options": {
+          "queryReplacement": "={{ $json.quantity }}, {{ $json.inventory_id }}, {{ $json.reference_id }}"
+        }
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        1120,
+        144
+      ],
+      "id": "33bad5e1-0d5f-4d4d-a556-55bd1d2a95e9",
+      "name": "Deduct the quantity sold from the quantity available and set processed to true",
+      "credentials": {
+        "postgres": {
+          "id": "ZRT4AN7r4ibFzcW0",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT \n  $1::int AS inventory_id,\n  CASE \n    WHEN EXISTS (SELECT 1 FROM inventory WHERE id = $1) THEN true\n    ELSE false\n  END AS exists",
+        "options": {
+          "queryReplacement": "={{ $json.inventory_id }}"
+        }
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        0,
+        0
+      ],
+      "id": "764cf0c2-460b-422e-886f-4a0f767ba2e8",
+      "name": "Validate Inventory Exists",
+      "credentials": {
+        "postgres": {
+          "id": "ZRT4AN7r4ibFzcW0",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "ac7ae16c-32db-4264-9c1f-5b41e82d0acd",
+              "leftValue": "={{ $json.exists }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        224,
+        0
+      ],
+      "id": "3f6da701-94be-43f1-9e48-f5ab373a66a8",
+      "name": "If ordered Items Exist in the Inventory"
+    },
+    {
+      "parameters": {
+        "mode": "combine",
+        "fieldsToMatchString": "inventory_id",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        448,
+        80
+      ],
+      "id": "485b74e3-8931-403c-ab2b-402f926680b6",
+      "name": "Merge Existing Ordered Drug Data"
+    },
+    {
+      "parameters": {
+        "mode": "combine",
+        "fieldsToMatchString": "inventory_id",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        896,
+        144
+      ],
+      "id": "4f4abeec-1c38-4e78-a2f0-b0ca116851f6",
+      "name": "Combine Inventory Transaction Reference"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "POS API TRIGGER": {
+      "main": [
+        [
+          {
+            "node": "Fetch POS data from event outbox table",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch POS data from event outbox table": {
+      "main": [
+        [
+          {
+            "node": "Is POS sale created",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Is POS sale created": {
+      "main": [
+        [
+          {
+            "node": "Normalize data for inventory transaction",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize data for inventory transaction": {
+      "main": [
+        [
+          {
+            "node": "Validate Inventory Exists",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Merge Existing Ordered Drug Data",
+            "type": "main",
+            "index": 1
+          },
+          {
+            "node": "Combine Inventory Transaction Reference",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Insert normalized data into inventory transaction table": {
+      "main": [
+        [
+          {
+            "node": "Combine Inventory Transaction Reference",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate Inventory Exists": {
+      "main": [
+        [
+          {
+            "node": "If ordered Items Exist in the Inventory",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If ordered Items Exist in the Inventory": {
+      "main": [
+        [
+          {
+            "node": "Merge Existing Ordered Drug Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge Existing Ordered Drug Data": {
+      "main": [
+        [
+          {
+            "node": "Insert normalized data into inventory transaction table",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Combine Inventory Transaction Reference": {
+      "main": [
+        [
+          {
+            "node": "Deduct the quantity sold from the quantity available and set processed to true",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false
+  },
+  "versionId": "cbad642e-5817-4357-8cf5-f3e8de362d70",
+  "meta": {
+    "instanceId": "22f5c003fd2cd3a1ac314539a7e8567fe60195300a5577f02c6e551c0f97cc2a"
+  },
+  "id": "7AQNVvveqjpfidiH",
+  "tags": []
+}
