@@ -1,0 +1,274 @@
+<!DOCTYPE html>
+
+<html lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>RxPulse Clinical Dashboard</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+      tailwind.config = {
+        darkMode: "class",
+        theme: {
+          extend: {
+            colors: {
+              "on-primary-fixed": "#03224a",
+              "tertiary-fixed": "#dfccfd",
+              "on-error-container": "#6e0a12",
+              "primary-container": "#a3bced",
+              "on-tertiary": "#fef7ff",
+              "on-background": "#2f323a",
+              "error-dim": "#67040d",
+              "secondary-fixed": "#dae2f9",
+              "on-secondary": "#f8f8ff",
+              "error-container": "#fa746f",
+              "outline": "#777a84",
+              "on-error": "#fff7f6",
+              "primary": "#475f8a",
+              "surface-bright": "#faf9fe",
+              "on-primary-fixed-variant": "#28416b",
+              "surface-container-lowest": "#ffffff",
+              "primary-fixed": "#a3bced",
+              "surface-container-high": "#e6e8f1",
+              "background": "#faf9fe",
+              "surface-tint": "#475f8a",
+              "on-secondary-container": "#495264",
+              "on-surface": "#2f323a",
+              "surface-container": "#ecedf6",
+              "on-secondary-fixed-variant": "#535c6e",
+              "error": "#a83836",
+              "surface-container-low": "#f3f3fa",
+              "secondary": "#565f72",
+              "surface-variant": "#e0e2ed",
+              "on-tertiary-fixed-variant": "#5a4b74",
+              "tertiary-fixed-dim": "#d1beee",
+              "secondary-dim": "#4b5365",
+              "tertiary": "#675882",
+              "secondary-fixed-dim": "#ccd4ea",
+              "inverse-primary": "#a3bced",
+              "surface-container-highest": "#e0e2ed",
+              "surface": "#faf9fe",
+              "tertiary-container": "#dfccfd",
+              "surface-dim": "#d7dae4",
+              "on-surface-variant": "#5c5f68",
+              "on-tertiary-fixed": "#3d2f56",
+              "on-primary-container": "#1f3861",
+              "primary-dim": "#3b537e",
+              "on-primary": "#f8f8ff",
+              "on-secondary-fixed": "#373f51",
+              "on-tertiary-container": "#51426a",
+              "outline-variant": "#afb2bc",
+              "primary-fixed-dim": "#96aede",
+              "inverse-surface": "#0d0e12",
+              "secondary-container": "#dae2f9",
+              "inverse-on-surface": "#9c9ca2",
+              "tertiary-dim": "#5b4c75"
+            },
+            fontFamily: {
+              "headline": ["Inter"],
+              "body": ["Inter"],
+              "label": ["Inter"]
+            },
+            borderRadius: {"DEFAULT": "0.25rem", "lg": "0.5rem", "xl": "0.75rem", "full": "9999px"},
+          },
+        },
+      }
+    </script>
+<style>
+        body { font-family: 'Inter', sans-serif; }
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+        }
+        .pulse-animation {
+            box-shadow: 0 0 0 0 rgba(168, 56, 54, 0.7);
+            animation: pulse 2s infinite;
+        }
+        @keyframes pulse {
+            0% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(168, 56, 54, 0.7); }
+            70% { transform: scale(1); box-shadow: 0 0 0 6px rgba(168, 56, 54, 0); }
+            100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(168, 56, 54, 0); }
+        }
+    </style>
+<style>
+    body {
+      min-height: max(884px, 100dvh);
+    }
+  </style>
+  </head>
+<body class="bg-background text-on-surface min-h-screen flex flex-col items-center">
+<!-- Mobile Container (375px) -->
+<div class="w-[375px] bg-surface-container-lowest min-h-screen flex flex-col relative shadow-2xl overflow-hidden">
+<!-- TopAppBar (Shared Component) -->
+<header class="sticky top-0 z-50 bg-surface-container-lowest border-b border-outline-variant px-4 h-16 flex items-center justify-between">
+<div class="flex items-center gap-3">
+<span class="material-symbols-outlined text-on-surface-variant">menu</span>
+<h1 class="text-lg font-semibold text-primary">RxPulse</h1>
+</div>
+<div class="flex items-center">
+<span class="material-symbols-outlined text-on-surface-variant">account_circle</span>
+</div>
+</header>
+<!-- Main Content -->
+<main class="flex-1 overflow-y-auto pb-24">
+<!-- Hero Section -->
+<section class="p-6 bg-gradient-to-b from-surface-container-low to-surface-container-lowest">
+<div class="flex items-center gap-2 mb-2">
+<span class="flex h-2 w-2 rounded-full bg-error pulse-animation"></span>
+<span class="text-[10px] font-bold tracking-wider text-error">LIVE</span>
+</div>
+<h2 class="text-2xl font-bold text-on-surface leading-tight">Live Inventory Management Dashboard</h2>
+<p class="text-on-surface-variant text-sm mt-2">Real-time clinical stock tracking and analytics.</p>
+</section>
+<!-- Stats Vertical Stack -->
+<section class="px-6 space-y-4">
+<!-- Stat Card 1 -->
+<div class="p-4 bg-surface-container-low border border-outline-variant rounded-xl flex items-center justify-between">
+<div>
+<p class="text-xs font-medium text-on-surface-variant mb-1">Total SKUs</p>
+<h3 class="text-xl font-bold text-on-surface">487</h3>
+</div>
+<div class="text-right">
+<span class="text-xs font-semibold text-primary bg-primary-container/20 px-2 py-1 rounded-full">+12 week</span>
+</div>
+</div>
+<!-- Stat Card 2 (Critical/Warning) -->
+<div class="p-4 bg-error-container/10 border border-error/20 rounded-xl flex items-center justify-between">
+<div>
+<p class="text-xs font-medium text-error mb-1">Low Stock</p>
+<h3 class="text-xl font-bold text-error">12</h3>
+</div>
+<div class="text-right">
+<span class="text-xs font-semibold text-error">-3 yesterday</span>
+</div>
+</div>
+<!-- Stat Card 3 -->
+<div class="p-4 bg-surface-container-low border border-outline-variant rounded-xl flex items-center justify-between">
+<div>
+<p class="text-xs font-medium text-on-surface-variant mb-1">Today's Revenue</p>
+<h3 class="text-xl font-bold text-on-surface">$3,456</h3>
+</div>
+<div class="text-right">
+<span class="text-xs font-semibold text-primary bg-primary-container/20 px-2 py-1 rounded-full">+18% avg</span>
+</div>
+</div>
+</section>
+<!-- Stock Distribution Chart (Donut) -->
+<section class="mt-8 px-6">
+<div class="p-6 bg-surface-container rounded-xl border border-outline-variant">
+<h4 class="text-sm font-semibold text-on-surface mb-6">Stock Distribution</h4>
+<div class="flex items-center gap-8">
+<div class="relative h-24 w-24 shrink-0">
+<!-- SVG Donut Chart -->
+<svg class="h-full w-full" viewbox="0 0 36 36">
+<circle cx="18" cy="18" fill="transparent" r="16" stroke="#e0e2ed" stroke-width="4"></circle>
+<circle cx="18" cy="18" fill="transparent" r="16" stroke="#10B981" stroke-dasharray="82 18" stroke-dashoffset="25" stroke-width="4"></circle>
+<circle cx="18" cy="18" fill="transparent" r="16" stroke="#F59E0B" stroke-dasharray="16 84" stroke-dashoffset="-57" stroke-width="4"></circle>
+<circle cx="18" cy="18" fill="transparent" r="16" stroke="#EF4444" stroke-dasharray="2 98" stroke-dashoffset="-73" stroke-width="4"></circle>
+</svg>
+<div class="absolute inset-0 flex items-center justify-center">
+<span class="text-xs font-bold text-on-surface">100%</span>
+</div>
+</div>
+<div class="flex flex-col gap-2">
+<div class="flex items-center gap-2">
+<div class="w-2 h-2 rounded-full bg-[#10B981]"></div>
+<span class="text-xs text-on-surface-variant">82% Healthy</span>
+</div>
+<div class="flex items-center gap-2">
+<div class="w-2 h-2 rounded-full bg-[#F59E0B]"></div>
+<span class="text-xs text-on-surface-variant">16% Low</span>
+</div>
+<div class="flex items-center gap-2">
+<div class="w-2 h-2 rounded-full bg-[#EF4444]"></div>
+<span class="text-xs text-on-surface-variant">2% Critical</span>
+</div>
+</div>
+</div>
+</div>
+</section>
+<!-- Live Activity Feed -->
+<section class="mt-8 px-6">
+<div class="flex items-center justify-between mb-4">
+<h4 class="text-sm font-semibold text-on-surface">Live Activity Feed</h4>
+<span class="text-[10px] font-medium text-primary">View all</span>
+</div>
+<div class="space-y-4">
+<!-- Feed Item 1 -->
+<div class="flex gap-4">
+<div class="mt-1 shrink-0 h-2 w-2 rounded-full bg-[#10B981]"></div>
+<div>
+<p class="text-xs font-medium text-on-surface">Ibuprofen update</p>
+<p class="text-[11px] text-on-surface-variant">Inventory restocked by pharmacist. +500 units.</p>
+<p class="text-[10px] text-outline mt-1">2 mins ago</p>
+</div>
+</div>
+<!-- Feed Item 2 -->
+<div class="flex gap-4">
+<div class="mt-1 shrink-0 h-2 w-2 rounded-full bg-error"></div>
+<div>
+<p class="text-xs font-medium text-on-surface">Amoxicillin alert</p>
+<p class="text-[11px] text-on-surface-variant">Stock level reached critical threshold (5 units remaining).</p>
+<p class="text-[10px] text-outline mt-1">15 mins ago</p>
+</div>
+</div>
+<!-- Feed Item 3 -->
+<div class="flex gap-4">
+<div class="mt-1 shrink-0 h-2 w-2 rounded-full bg-primary"></div>
+<div>
+<p class="text-xs font-medium text-on-surface">Order success</p>
+<p class="text-[11px] text-on-surface-variant">Bulk order #8842 processed for St. Jude's Clinic.</p>
+<p class="text-[10px] text-outline mt-1">1 hour ago</p>
+</div>
+</div>
+</div>
+</section>
+<!-- CTA Section -->
+<section class="mt-10 px-6">
+<div class="bg-primary p-6 rounded-2xl relative overflow-hidden">
+<div class="relative z-10">
+<h4 class="text-on-primary text-lg font-bold mb-2">Try It Yourself</h4>
+<p class="text-on-primary/80 text-xs mb-4">Explore our automated ordering system in a sandbox environment.</p>
+<button class="w-full bg-surface-container-lowest text-primary py-3 rounded-lg font-semibold text-sm shadow-lg flex items-center justify-center gap-2">
+                            Place Test Order
+                            <span class="material-symbols-outlined text-sm">shopping_cart</span>
+</button>
+</div>
+<!-- Abstract Background Pattern -->
+<div class="absolute -right-4 -bottom-4 opacity-10">
+<span class="material-symbols-outlined text-[120px]" style="font-variation-settings: 'FILL' 1;">pulse_alert</span>
+</div>
+</div>
+</section>
+<!-- Footer (Shared Component) -->
+<footer class="mt-12 px-6 py-8 bg-surface-container-low border-t border-outline-variant">
+<p class="text-xs text-on-surface-variant mb-4 text-center">© 2024 RxPulse SaaS</p>
+<div class="flex justify-center gap-4">
+<a class="text-[10px] font-medium text-primary" href="#">System Status</a>
+<a class="text-[10px] font-medium text-primary" href="#">Privacy Policy</a>
+<a class="text-[10px] font-medium text-primary" href="#">Support</a>
+</div>
+</footer>
+</main>
+<!-- BottomNavBar (Shared Component) -->
+<nav class="fixed bottom-0 w-[375px] bg-surface-container-lowest border-t border-outline-variant flex justify-around items-center h-16 px-2 z-50">
+<div class="flex flex-col items-center gap-1 text-primary">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 1;">dashboard</span>
+<span class="text-[10px] font-medium">Dashboard</span>
+</div>
+<div class="flex flex-col items-center gap-1 text-on-surface-variant">
+<span class="material-symbols-outlined">inventory_2</span>
+<span class="text-[10px] font-medium">Inventory</span>
+</div>
+<div class="flex flex-col items-center gap-1 text-on-surface-variant">
+<span class="material-symbols-outlined">pulse_alert</span>
+<span class="text-[10px] font-medium">Activity</span>
+</div>
+<div class="flex flex-col items-center gap-1 text-on-surface-variant">
+<span class="material-symbols-outlined">shopping_cart</span>
+<span class="text-[10px] font-medium">Orders</span>
+</div>
+</nav>
+</div>
+</body></html>
